@@ -8,11 +8,15 @@ local defaults = {
     soundPath = "Sound\\Interface\\RaidWarning.ogg",
     channel = "AUTO",
     throttleSeconds = 1.5,
+    showSpellID = false,
+    announceOnlyInGroup = false,
+    lockWindow = false,
 }
 
 local state = {
     lastAnnounceAt = {},
     configWindow = nil,
+    controls = {},
 }
 
 local channelOrder = { "AUTO", "SAY", "PARTY", "RAID" }
@@ -41,6 +45,10 @@ local function IsDuplicateAnnouncement(sourceGUID, spellID)
     return false
 end
 
+local function IsGrouped()
+    return UnitInRaid("player") or UnitInParty("player")
+end
+
 local function ResolveChannel()
     if SHCA_DB.channel ~= "AUTO" then
         return SHCA_DB.channel
@@ -57,23 +65,19 @@ local function ResolveChannel()
     return "SAY"
 end
 
+local function PlayConfiguredSound()
+    if SHCA_DB.useSound and PlaySoundFile then
+        PlaySoundFile(SHCA_DB.soundPath)
+    end
+end
+
 local function Announce(message)
     if SHCA_DB.useRaidWarningFrame and RaidNotice_AddMessage and RaidWarningFrame then
         RaidNotice_AddMessage(RaidWarningFrame, message, ChatTypeInfo["RAID_WARNING"])
     end
 
-    if SHCA_DB.useSound and PlaySoundFile then
-        PlaySoundFile(SHCA_DB.soundPath)
-    end
-
+    PlayConfiguredSound()
     SendChatMessage(message, ResolveChannel())
-end
-
-local function CreateLabel(parent, text, anchor, x, y)
-    local label = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint(anchor, x, y)
-    label:SetText(text)
-    return label
 end
 
 local function SetCheckButtonText(checkButton, text)
@@ -83,16 +87,66 @@ local function SetCheckButtonText(checkButton, text)
     end
 end
 
+local function ApplyLockState()
+    if not state.configWindow then
+        return
+    end
+
+    if SHCA_DB.lockWindow then
+        state.configWindow:RegisterForDrag()
+    else
+        state.configWindow:RegisterForDrag("LeftButton")
+    end
+end
+
+local function CreateSection(parent, title, x, y, width, height)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetSize(width, height)
+    box:SetPoint("TOPLEFT", x, y)
+    box:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 12,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    box:SetBackdropColor(0.03, 0.03, 0.03, 0.85)
+
+    local label = box:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    label:SetPoint("TOPLEFT", 10, -8)
+    label:SetText(title)
+
+    return box
+end
+
+local function RefreshConfigWindow()
+    if not state.configWindow then
+        return
+    end
+
+    local c = state.controls
+    c.enabledCheck:SetChecked(SHCA_DB.enabled)
+    c.rwCheck:SetChecked(SHCA_DB.useRaidWarningFrame)
+    c.soundCheck:SetChecked(SHCA_DB.useSound)
+    c.spellIDCheck:SetChecked(SHCA_DB.showSpellID)
+    c.groupOnlyCheck:SetChecked(SHCA_DB.announceOnlyInGroup)
+    c.lockWindowCheck:SetChecked(SHCA_DB.lockWindow)
+    c.soundEditBox:SetText(SHCA_DB.soundPath)
+    c.channelButton:SetText(SHCA_DB.channel)
+    c.throttleSlider:SetValue(SHCA_DB.throttleSeconds)
+    c.throttleValue:SetText(string.format("%.1f сек", SHCA_DB.throttleSeconds))
+    ApplyLockState()
+end
+
 local function CreateConfigWindow()
     if state.configWindow then
         return
     end
 
     local config = CreateFrame("Frame", "SHCAConfigWindow", UIParent)
-    config:SetSize(360, 280)
+    config:SetSize(470, 355)
     config:SetPoint("CENTER")
     config:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
         tile = true,
         tileSize = 16,
@@ -109,55 +163,91 @@ local function CreateConfigWindow()
     config:Hide()
 
     local title = config:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -14)
+    title:SetPoint("TOP", 0, -12)
     title:SetText("Sirus Harmful Cast Announcer")
+
+    local subtitle = config:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    subtitle:SetPoint("TOP", title, "BOTTOM", 0, -4)
+    subtitle:SetText("Быстрые и гибкие настройки анонса враждебных кастов")
 
     local closeButton = CreateFrame("Button", nil, config, "UIPanelCloseButton")
     closeButton:SetPoint("TOPRIGHT", -5, -5)
 
-    local enabledCheck = CreateFrame("CheckButton", "SHCAConfigEnabledCheck", config, "UICheckButtonTemplate")
-    enabledCheck:SetPoint("TOPLEFT", 16, -44)
+    local leftSection = CreateSection(config, "Основное", 12, -54, 216, 208)
+    local rightSection = CreateSection(config, "Звук и чат", 242, -54, 216, 208)
+    local bottomSection = CreateSection(config, "Сервис", 12, -270, 446, 72)
+
+    local enabledCheck = CreateFrame("CheckButton", "SHCAConfigEnabledCheck", leftSection, "UICheckButtonTemplate")
+    enabledCheck:SetPoint("TOPLEFT", 10, -28)
     SetCheckButtonText(enabledCheck, "Включить аддон")
 
-    local rwCheck = CreateFrame("CheckButton", "SHCAConfigRWCheck", config, "UICheckButtonTemplate")
-    rwCheck:SetPoint("TOPLEFT", enabledCheck, "BOTTOMLEFT", 0, -8)
-    SetCheckButtonText(rwCheck, "Центральное предупреждение")
+    local rwCheck = CreateFrame("CheckButton", "SHCAConfigRWCheck", leftSection, "UICheckButtonTemplate")
+    rwCheck:SetPoint("TOPLEFT", enabledCheck, "BOTTOMLEFT", 0, -6)
+    SetCheckButtonText(rwCheck, "Показывать в центре экрана")
 
-    local soundCheck = CreateFrame("CheckButton", "SHCAConfigSoundCheck", config, "UICheckButtonTemplate")
-    soundCheck:SetPoint("TOPLEFT", rwCheck, "BOTTOMLEFT", 0, -8)
-    SetCheckButtonText(soundCheck, "Звуковой сигнал")
+    local spellIDCheck = CreateFrame("CheckButton", "SHCAConfigSpellIDCheck", leftSection, "UICheckButtonTemplate")
+    spellIDCheck:SetPoint("TOPLEFT", rwCheck, "BOTTOMLEFT", 0, -6)
+    SetCheckButtonText(spellIDCheck, "Добавлять SpellID в текст")
 
-    CreateLabel(config, "Канал анонса:", "TOPLEFT", 16, -142)
+    local groupOnlyCheck = CreateFrame("CheckButton", "SHCAConfigGroupOnlyCheck", leftSection, "UICheckButtonTemplate")
+    groupOnlyCheck:SetPoint("TOPLEFT", spellIDCheck, "BOTTOMLEFT", 0, -6)
+    SetCheckButtonText(groupOnlyCheck, "Анонс только в группе/рейде")
 
-    local channelButton = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
-    channelButton:SetSize(110, 22)
-    channelButton:SetPoint("TOPLEFT", 16, -162)
+    local lockWindowCheck = CreateFrame("CheckButton", "SHCAConfigLockCheck", leftSection, "UICheckButtonTemplate")
+    lockWindowCheck:SetPoint("TOPLEFT", groupOnlyCheck, "BOTTOMLEFT", 0, -6)
+    SetCheckButtonText(lockWindowCheck, "Закрепить окно настроек")
 
-    CreateLabel(config, "Антиспам (сек):", "TOPLEFT", 16, -194)
+    local channelLabel = rightSection:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    channelLabel:SetPoint("TOPLEFT", 10, -30)
+    channelLabel:SetText("Канал анонса:")
 
-    local throttleSlider = CreateFrame("Slider", "SHCAThrottleSlider", config, "OptionsSliderTemplate")
-    throttleSlider:SetPoint("TOPLEFT", 10, -212)
-    throttleSlider:SetWidth(220)
+    local channelButton = CreateFrame("Button", nil, rightSection, "UIPanelButtonTemplate")
+    channelButton:SetSize(120, 22)
+    channelButton:SetPoint("TOPLEFT", channelLabel, "BOTTOMLEFT", 0, -6)
+
+    local throttleLabel = rightSection:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    throttleLabel:SetPoint("TOPLEFT", channelButton, "BOTTOMLEFT", 0, -16)
+    throttleLabel:SetText("Антиспам:")
+
+    local throttleSlider = CreateFrame("Slider", "SHCAThrottleSlider", rightSection, "OptionsSliderTemplate")
+    throttleSlider:SetPoint("TOPLEFT", throttleLabel, "BOTTOMLEFT", -6, -10)
+    throttleSlider:SetWidth(160)
     throttleSlider:SetMinMaxValues(0, 5)
     throttleSlider:SetValueStep(0.1)
     throttleSlider:SetObeyStepOnDrag(true)
     _G[throttleSlider:GetName() .. "Low"]:SetText("0")
     _G[throttleSlider:GetName() .. "High"]:SetText("5")
 
-    local throttleValue = config:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    throttleValue:SetPoint("LEFT", throttleSlider, "RIGHT", 8, 0)
+    local throttleValue = rightSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    throttleValue:SetPoint("LEFT", throttleSlider, "RIGHT", 6, 0)
 
-    CreateLabel(config, "Звук (Sound\\...):", "TOPLEFT", 190, -44)
+    local soundCheck = CreateFrame("CheckButton", "SHCAConfigSoundCheck", rightSection, "UICheckButtonTemplate")
+    soundCheck:SetPoint("TOPLEFT", throttleSlider, "BOTTOMLEFT", 0, -14)
+    SetCheckButtonText(soundCheck, "Звуковой сигнал")
 
-    local soundEditBox = CreateFrame("EditBox", nil, config, "InputBoxTemplate")
-    soundEditBox:SetSize(150, 20)
-    soundEditBox:SetPoint("TOPLEFT", 190, -62)
+    local soundEditBox = CreateFrame("EditBox", nil, rightSection, "InputBoxTemplate")
+    soundEditBox:SetSize(180, 20)
+    soundEditBox:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 8, -6)
     soundEditBox:SetAutoFocus(false)
 
-    local testSoundButton = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
-    testSoundButton:SetSize(150, 22)
-    testSoundButton:SetPoint("TOPLEFT", 190, -92)
-    testSoundButton:SetText("Проверить звук")
+    local testSoundButton = CreateFrame("Button", nil, rightSection, "UIPanelButtonTemplate")
+    testSoundButton:SetSize(110, 22)
+    testSoundButton:SetPoint("TOPLEFT", soundEditBox, "BOTTOMLEFT", -2, -8)
+    testSoundButton:SetText("Тест звука")
+
+    local statusText = bottomSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    statusText:SetPoint("TOPLEFT", 12, -28)
+    statusText:SetText("/shca config - показать/скрыть это окно")
+
+    local testMessageButton = CreateFrame("Button", nil, bottomSection, "UIPanelButtonTemplate")
+    testMessageButton:SetSize(120, 24)
+    testMessageButton:SetPoint("TOPRIGHT", -12, -22)
+    testMessageButton:SetText("Тест анонса")
+
+    local resetPosButton = CreateFrame("Button", nil, bottomSection, "UIPanelButtonTemplate")
+    resetPosButton:SetSize(120, 24)
+    resetPosButton:SetPoint("RIGHT", testMessageButton, "LEFT", -8, 0)
+    resetPosButton:SetText("Сбросить позицию")
 
     enabledCheck:SetScript("OnClick", function(self)
         SHCA_DB.enabled = self:GetChecked() and true or false
@@ -165,6 +255,19 @@ local function CreateConfigWindow()
 
     rwCheck:SetScript("OnClick", function(self)
         SHCA_DB.useRaidWarningFrame = self:GetChecked() and true or false
+    end)
+
+    spellIDCheck:SetScript("OnClick", function(self)
+        SHCA_DB.showSpellID = self:GetChecked() and true or false
+    end)
+
+    groupOnlyCheck:SetScript("OnClick", function(self)
+        SHCA_DB.announceOnlyInGroup = self:GetChecked() and true or false
+    end)
+
+    lockWindowCheck:SetScript("OnClick", function(self)
+        SHCA_DB.lockWindow = self:GetChecked() and true or false
+        ApplyLockState()
     end)
 
     soundCheck:SetScript("OnClick", function(self)
@@ -175,6 +278,7 @@ local function CreateConfigWindow()
         local text = self:GetText()
         if text and text ~= "" then
             SHCA_DB.soundPath = text
+            statusText:SetText("Путь звука сохранен.")
         end
         self:ClearFocus()
     end)
@@ -187,7 +291,7 @@ local function CreateConfigWindow()
     throttleSlider:SetScript("OnValueChanged", function(_, value)
         local rounded = math.floor((value * 10) + 0.5) / 10
         SHCA_DB.throttleSeconds = rounded
-        throttleValue:SetText(string.format("%.1f", rounded))
+        throttleValue:SetText(string.format("%.1f сек", rounded))
     end)
 
     channelButton:SetScript("OnClick", function(self)
@@ -206,20 +310,39 @@ local function CreateConfigWindow()
     end)
 
     testSoundButton:SetScript("OnClick", function()
-        if PlaySoundFile then
-            PlaySoundFile(SHCA_DB.soundPath)
-        end
+        PlayConfiguredSound()
+        statusText:SetText("Звуковой тест выполнен.")
+    end)
+
+    testMessageButton:SetScript("OnClick", function()
+        local message = "|cffff4040[CAST]|r Тестовый моб начинает каст: |cffffff00Огненная стрела|r"
+        Announce(message)
+        statusText:SetText("Тестовый анонс отправлен.")
+    end)
+
+    resetPosButton:SetScript("OnClick", function()
+        config:ClearAllPoints()
+        config:SetPoint("CENTER")
+        statusText:SetText("Позиция окна сброшена в центр.")
     end)
 
     config:SetScript("OnShow", function()
-        enabledCheck:SetChecked(SHCA_DB.enabled)
-        rwCheck:SetChecked(SHCA_DB.useRaidWarningFrame)
-        soundCheck:SetChecked(SHCA_DB.useSound)
-        channelButton:SetText(SHCA_DB.channel)
-        throttleSlider:SetValue(SHCA_DB.throttleSeconds)
-        throttleValue:SetText(string.format("%.1f", SHCA_DB.throttleSeconds))
-        soundEditBox:SetText(SHCA_DB.soundPath)
+        statusText:SetText("/shca config - показать/скрыть это окно")
+        RefreshConfigWindow()
     end)
+
+    state.controls = {
+        enabledCheck = enabledCheck,
+        rwCheck = rwCheck,
+        soundCheck = soundCheck,
+        spellIDCheck = spellIDCheck,
+        groupOnlyCheck = groupOnlyCheck,
+        lockWindowCheck = lockWindowCheck,
+        soundEditBox = soundEditBox,
+        channelButton = channelButton,
+        throttleSlider = throttleSlider,
+        throttleValue = throttleValue,
+    }
 
     state.configWindow = config
 end
@@ -244,15 +367,15 @@ end
 local function HandleCastStart(...)
     local _, eventType, _, sourceGUID, sourceName, sourceFlags, _, _, _, _, _, spellID, spellName = ...
 
-    if eventType ~= "SPELL_CAST_START" then
-        return
-    end
-
-    if not SHCA_DB.enabled then
+    if eventType ~= "SPELL_CAST_START" or not SHCA_DB.enabled then
         return
     end
 
     if bit.band(sourceFlags or 0, COMBATLOG_OBJECT_REACTION_HOSTILE) == 0 then
+        return
+    end
+
+    if SHCA_DB.announceOnlyInGroup and not IsGrouped() then
         return
     end
 
@@ -262,8 +385,11 @@ local function HandleCastStart(...)
 
     local sourceText = sourceName or "Неизвестный"
     local spellText = spellName or ("SpellID " .. tostring(spellID or "?"))
-    local message = string.format("|cffff4040[CAST]|r %s начинает каст: |cffffff00%s|r", sourceText, spellText)
+    if SHCA_DB.showSpellID and spellID then
+        spellText = spellText .. " |cffaaaaaa(" .. tostring(spellID) .. ")|r"
+    end
 
+    local message = string.format("|cffff4040[CAST]|r %s начинает каст: |cffffff00%s|r", sourceText, spellText)
     Announce(message)
 end
 
@@ -276,6 +402,10 @@ local function PrintUsage()
     print("  /shca soundfile <путь> - путь к звуковому файлу")
     print("  /shca channel auto|say|party|raid - канал анонса")
     print("  /shca throttle <секунды> - антиспам")
+    print("  /shca spellid on|off - добавлять ID заклинания")
+    print("  /shca grouponly on|off - анонс только в группе")
+    print("  /shca resetpos - сброс позиции окна")
+    print("  /shca test - тестовый анонс")
     print("  /shca config - открыть/закрыть окно настроек")
     print("  /shca status - текущие настройки")
 end
@@ -289,6 +419,8 @@ local function PrintStatus()
         SHCA_DB.channel,
         SHCA_DB.throttleSeconds
     ))
+    print("SpellID в тексте: " .. tostring(SHCA_DB.showSpellID))
+    print("Только в группе: " .. tostring(SHCA_DB.announceOnlyInGroup))
     print("Путь звука: " .. SHCA_DB.soundPath)
 end
 
@@ -310,6 +442,12 @@ SlashCmdList.SHCA = function(msg)
     elseif command == "sound" and (arg == "on" or arg == "off") then
         SHCA_DB.useSound = (arg == "on")
         print("Звуковое оповещение: " .. arg)
+    elseif command == "spellid" and (arg == "on" or arg == "off") then
+        SHCA_DB.showSpellID = (arg == "on")
+        print("SpellID в тексте: " .. arg)
+    elseif command == "grouponly" and (arg == "on" or arg == "off") then
+        SHCA_DB.announceOnlyInGroup = (arg == "on")
+        print("Анонс только в группе: " .. arg)
     elseif command == "soundfile" and arg ~= "" then
         SHCA_DB.soundPath = msg:match("^%S+%s+(.+)$") or SHCA_DB.soundPath
         print("Путь к звуку: " .. SHCA_DB.soundPath)
@@ -323,6 +461,17 @@ SlashCmdList.SHCA = function(msg)
             print("Антиспам: " .. string.format("%.1f", seconds) .. " сек.")
         else
             print("Укажите корректное значение, например: /shca throttle 1.5")
+        end
+    elseif command == "test" then
+        Announce("|cffff4040[CAST]|r Тестовый моб начинает каст: |cffffff00Огненная стрела|r")
+    elseif command == "resetpos" then
+        if not state.configWindow then
+            CreateConfigWindow()
+        end
+        if state.configWindow then
+            state.configWindow:ClearAllPoints()
+            state.configWindow:SetPoint("CENTER")
+            print("Позиция окна сброшена в центр.")
         end
     elseif command == "status" then
         PrintStatus()
