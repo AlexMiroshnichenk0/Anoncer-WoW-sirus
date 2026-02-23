@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Sirus Harmful Cast Announcer
+## Notes: Announces hostile spell casts in chat.
+## Author: Codex
+## Version: 1.0.0
+## SavedVariables: SHCA_DB
+
+SirusHarmfulCastAnnouncer.lua
