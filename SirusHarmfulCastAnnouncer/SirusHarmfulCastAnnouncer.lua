@@ -23,6 +23,7 @@ local state = {
 
 local channelOrder = { "AUTO", "SAY", "PARTY", "RAID" }
 local themeOrder = { "DEFAULT", "DARK", "CLASS" }
+local ToggleConfigWindow
 
 local function MergeDefaults(target, source)
     for key, value in pairs(source) do
@@ -479,7 +480,7 @@ local function CreateConfigWindow()
     state.configWindow = config
 end
 
-local function ToggleConfigWindow()
+ToggleConfigWindow = function()
     if not state.configWindow then
         CreateConfigWindow()
     end
@@ -494,6 +495,166 @@ local function ToggleConfigWindow()
     else
         state.configWindow:Show()
     end
+end
+
+
+local function OpenInterfaceOptions(panel)
+    InterfaceOptionsFrame_OpenToCategory(panel)
+    InterfaceOptionsFrame_OpenToCategory(panel)
+end
+
+local function CreateInterfaceOptionsPanel()
+    local panel = CreateFrame("Frame", "SHCAInterfaceOptionsPanel", InterfaceOptionsFramePanelContainer)
+    panel.name = "SHCA (Sirus Cast Announcer)"
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText("Sirus Harmful Cast Announcer")
+
+    local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    subtitle:SetText("Полное меню настроек в Интерфейс -> Модификации")
+
+    local enabledCheck = CreateFrame("CheckButton", "SHCAOptionsEnabled", panel, "InterfaceOptionsCheckButtonTemplate")
+    enabledCheck:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", -2, -16)
+    _G[enabledCheck:GetName() .. "Text"]:SetText("Включить аддон")
+    enabledCheck:SetScript("OnClick", function(self)
+        SHCA_DB.enabled = self:GetChecked() and true or false
+    end)
+
+    local rwCheck = CreateFrame("CheckButton", "SHCAOptionsRW", panel, "InterfaceOptionsCheckButtonTemplate")
+    rwCheck:SetPoint("TOPLEFT", enabledCheck, "BOTTOMLEFT", 0, -6)
+    _G[rwCheck:GetName() .. "Text"]:SetText("Показывать предупреждение в центре")
+    rwCheck:SetScript("OnClick", function(self)
+        SHCA_DB.useRaidWarningFrame = self:GetChecked() and true or false
+    end)
+
+    local soundCheck = CreateFrame("CheckButton", "SHCAOptionsSound", panel, "InterfaceOptionsCheckButtonTemplate")
+    soundCheck:SetPoint("TOPLEFT", rwCheck, "BOTTOMLEFT", 0, -6)
+    _G[soundCheck:GetName() .. "Text"]:SetText("Звуковой сигнал")
+    soundCheck:SetScript("OnClick", function(self)
+        SHCA_DB.useSound = self:GetChecked() and true or false
+    end)
+
+    local spellIDCheck = CreateFrame("CheckButton", "SHCAOptionsSpellID", panel, "InterfaceOptionsCheckButtonTemplate")
+    spellIDCheck:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 0, -6)
+    _G[spellIDCheck:GetName() .. "Text"]:SetText("Добавлять SpellID в текст")
+    spellIDCheck:SetScript("OnClick", function(self)
+        SHCA_DB.showSpellID = self:GetChecked() and true or false
+    end)
+
+    local groupOnlyCheck = CreateFrame("CheckButton", "SHCAOptionsGroupOnly", panel, "InterfaceOptionsCheckButtonTemplate")
+    groupOnlyCheck:SetPoint("TOPLEFT", spellIDCheck, "BOTTOMLEFT", 0, -6)
+    _G[groupOnlyCheck:GetName() .. "Text"]:SetText("Анонсировать только в группе/рейде")
+    groupOnlyCheck:SetScript("OnClick", function(self)
+        SHCA_DB.announceOnlyInGroup = self:GetChecked() and true or false
+    end)
+
+    local channelLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    channelLabel:SetPoint("TOPLEFT", 360, -72)
+    channelLabel:SetText("Канал анонса:")
+
+    local channelDropDown = CreateFrame("Frame", "SHCAOptionsChannelDropDown", panel, "UIDropDownMenuTemplate")
+    channelDropDown:SetPoint("TOPLEFT", channelLabel, "BOTTOMLEFT", -16, -4)
+    UIDropDownMenu_SetWidth(channelDropDown, 150)
+    UIDropDownMenu_Initialize(channelDropDown, function(self, level)
+        for _, value in ipairs(channelOrder) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = value
+            info.value = value
+            info.func = function()
+                SHCA_DB.channel = value
+                UIDropDownMenu_SetSelectedValue(channelDropDown, value)
+            end
+            info.checked = (SHCA_DB.channel == value)
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
+    local themeLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    themeLabel:SetPoint("TOPLEFT", 360, -148)
+    themeLabel:SetText("Тема окна:")
+
+    local themeDropDown = CreateFrame("Frame", "SHCAOptionsThemeDropDown", panel, "UIDropDownMenuTemplate")
+    themeDropDown:SetPoint("TOPLEFT", themeLabel, "BOTTOMLEFT", -16, -4)
+    UIDropDownMenu_SetWidth(themeDropDown, 150)
+    UIDropDownMenu_Initialize(themeDropDown, function(self, level)
+        for _, value in ipairs(themeOrder) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = value
+            info.value = value
+            info.func = function()
+                SHCA_DB.theme = value
+                UIDropDownMenu_SetSelectedValue(themeDropDown, value)
+                ApplyTheme()
+            end
+            info.checked = (SHCA_DB.theme == value)
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
+    local throttleSlider = CreateFrame("Slider", "SHCAOptionsThrottle", panel, "OptionsSliderTemplate")
+    throttleSlider:SetWidth(220)
+    throttleSlider:SetPoint("TOPLEFT", 354, -238)
+    throttleSlider:SetMinMaxValues(0, 5)
+    throttleSlider:SetValueStep(0.1)
+    throttleSlider:SetObeyStepOnDrag(true)
+    _G[throttleSlider:GetName() .. "Low"]:SetText("0")
+    _G[throttleSlider:GetName() .. "High"]:SetText("5")
+    _G[throttleSlider:GetName() .. "Text"]:SetText("Антиспам (сек)")
+
+    throttleSlider:SetScript("OnValueChanged", function(_, value)
+        SHCA_DB.throttleSeconds = math.floor((value * 10) + 0.5) / 10
+    end)
+
+    local soundPathLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    soundPathLabel:SetPoint("TOPLEFT", 16, -262)
+    soundPathLabel:SetText("Путь звука (Sound\\...):")
+
+    local soundPathEdit = CreateFrame("EditBox", "SHCAOptionsSoundPath", panel, "InputBoxTemplate")
+    soundPathEdit:SetSize(320, 24)
+    soundPathEdit:SetPoint("TOPLEFT", soundPathLabel, "BOTTOMLEFT", 0, -8)
+    soundPathEdit:SetAutoFocus(false)
+    soundPathEdit:SetScript("OnEnterPressed", function(self)
+        local text = self:GetText()
+        if text and text ~= "" then
+            SHCA_DB.soundPath = text
+        end
+        self:ClearFocus()
+    end)
+    soundPathEdit:SetScript("OnEscapePressed", function(self)
+        self:SetText(SHCA_DB.soundPath)
+        self:ClearFocus()
+    end)
+
+    local openWindowButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    openWindowButton:SetSize(220, 24)
+    openWindowButton:SetPoint("TOPLEFT", soundPathEdit, "BOTTOMLEFT", 0, -16)
+    openWindowButton:SetText("Открыть расширенное окно (/shca config)")
+    openWindowButton:SetScript("OnClick", function()
+        ToggleConfigWindow()
+    end)
+
+    panel:SetScript("OnShow", function()
+        enabledCheck:SetChecked(SHCA_DB.enabled)
+        rwCheck:SetChecked(SHCA_DB.useRaidWarningFrame)
+        soundCheck:SetChecked(SHCA_DB.useSound)
+        spellIDCheck:SetChecked(SHCA_DB.showSpellID)
+        groupOnlyCheck:SetChecked(SHCA_DB.announceOnlyInGroup)
+        soundPathEdit:SetText(SHCA_DB.soundPath)
+        throttleSlider:SetValue(SHCA_DB.throttleSeconds)
+        UIDropDownMenu_SetSelectedValue(channelDropDown, SHCA_DB.channel)
+        UIDropDownMenu_SetText(channelDropDown, SHCA_DB.channel)
+        UIDropDownMenu_SetSelectedValue(themeDropDown, SHCA_DB.theme)
+        UIDropDownMenu_SetText(themeDropDown, SHCA_DB.theme)
+    end)
+
+    panel.okay = function()
+        ApplyTheme()
+    end
+
+    InterfaceOptions_AddCategory(panel)
+    return panel
 end
 
 local function HandleCastStart(...)
@@ -540,7 +701,8 @@ local function PrintUsage()
     print("  /shca theme default|dark|class - тема окна")
     print("  /shca elvui on|off - ElvUI скин")
     print("  /shca test - тестовый анонс")
-    print("  /shca config - открыть/закрыть окно настроек")
+    print("  /shca config - открыть/закрыть расширенное окно")
+    print("  /shca options - открыть меню в Интерфейс")
     print("  /shca status - текущие настройки")
 end
 
@@ -623,6 +785,10 @@ SlashCmdList.SHCA = function(msg)
         PrintStatus()
     elseif command == "config" then
         ToggleConfigWindow()
+    elseif command == "options" then
+        if state.interfaceOptionsPanel then
+            OpenInterfaceOptions(state.interfaceOptionsPanel)
+        end
     else
         PrintUsage()
     end
@@ -637,6 +803,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
         SHCA_DB = SHCA_DB or {}
         MergeDefaults(SHCA_DB, defaults)
+        state.interfaceOptionsPanel = CreateInterfaceOptionsPanel()
         print("|cffff4040Sirus Harmful Cast Announcer|r загружен. /shca")
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         HandleCastStart(...)
