@@ -138,7 +138,9 @@ DruidDamageText:SetScript("OnEvent", function(_, event, ...)
     return
   end
 
-  local _, subevent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName, _, amount, _, _, _, _, _, critical = CombatLogGetCurrentEventInfo()
+  -- 3.3.5-compatible COMBAT_LOG_EVENT_UNFILTERED payload from ...
+  local _, subevent, _, sourceGUID, _, _, _, _, _, _, _, spellId, spellName, _, amount, _, _, _, _, _, critical = ...
+
   if sourceGUID ~= UnitGUID("player") then
     return
   end
@@ -146,7 +148,10 @@ DruidDamageText:SetScript("OnEvent", function(_, event, ...)
   local damage, isCrit, shownSpell
 
   if subevent == "SWING_DAMAGE" then
-    damage, _, _, _, _, _, _, _, isCrit = select(12, CombatLogGetCurrentEventInfo())
+    -- SWING_DAMAGE has no spellId/spellName and a different payload shape.
+    -- amount starts at arg 12 and critical at arg 21 (in 3.3.5 CLEU layout).
+    damage = select(12, ...)
+    isCrit = select(21, ...)
     shownSpell = "Атака"
   elseif subevent == "SPELL_DAMAGE" or subevent == "RANGE_DAMAGE" then
     damage = amount
