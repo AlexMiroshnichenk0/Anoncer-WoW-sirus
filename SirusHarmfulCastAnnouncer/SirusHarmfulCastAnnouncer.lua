@@ -71,13 +71,21 @@ local function PlayConfiguredSound()
     end
 end
 
+local function SafeSendChatMessage(message)
+    local channel = ResolveChannel()
+    local ok = pcall(SendChatMessage, message, channel)
+    if not ok and channel ~= "SAY" then
+        SendChatMessage(message, "SAY")
+    end
+end
+
 local function Announce(message)
     if SHCA_DB.useRaidWarningFrame and RaidNotice_AddMessage and RaidWarningFrame then
         RaidNotice_AddMessage(RaidWarningFrame, message, ChatTypeInfo["RAID_WARNING"])
     end
 
     PlayConfiguredSound()
-    SendChatMessage(message, ResolveChannel())
+    SafeSendChatMessage(message)
 end
 
 local function SetCheckButtonText(checkButton, text)
@@ -93,12 +101,11 @@ local function ApplyLockState()
     end
 
     if SHCA_DB.lockWindow then
-        state.configWindow:RegisterForDrag()
+        state.configWindow:SetAlpha(0.95)
     else
-        state.configWindow:RegisterForDrag("LeftButton")
+        state.configWindow:SetAlpha(1)
     end
 end
-
 local function CreateSection(parent, title, x, y, width, height)
     local box = CreateFrame("Frame", nil, parent)
     box:SetSize(width, height)
@@ -158,8 +165,15 @@ local function CreateConfigWindow()
     config:SetToplevel(true)
     config:SetMovable(true)
     config:RegisterForDrag("LeftButton")
-    config:SetScript("OnDragStart", config.StartMoving)
-    config:SetScript("OnDragStop", config.StopMovingOrSizing)
+    config:SetScript("OnDragStart", function(self)
+        if SHCA_DB.lockWindow then
+            return
+        end
+        self:StartMoving()
+    end)
+    config:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+    end)
     config:Hide()
 
     local title = config:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -268,6 +282,11 @@ local function CreateConfigWindow()
     lockWindowCheck:SetScript("OnClick", function(self)
         SHCA_DB.lockWindow = self:GetChecked() and true or false
         ApplyLockState()
+        if SHCA_DB.lockWindow then
+            statusText:SetText("Окно закреплено (перетаскивание выключено).")
+        else
+            statusText:SetText("Окно разблокировано (можно перетаскивать).")
+        end
     end)
 
     soundCheck:SetScript("OnClick", function(self)
