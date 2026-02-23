@@ -76,7 +76,18 @@ local function CreateLabel(parent, text, anchor, x, y)
     return label
 end
 
+local function SetCheckButtonText(checkButton, text)
+    local label = _G[checkButton:GetName() .. "Text"]
+    if label then
+        label:SetText(text)
+    end
+end
+
 local function CreateConfigWindow()
+    if state.configWindow then
+        return
+    end
+
     local config = CreateFrame("Frame", "SHCAConfigWindow", UIParent)
     config:SetSize(360, 280)
     config:SetPoint("CENTER")
@@ -89,6 +100,8 @@ local function CreateConfigWindow()
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
     config:EnableMouse(true)
+    config:SetFrameStrata("DIALOG")
+    config:SetToplevel(true)
     config:SetMovable(true)
     config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart", config.StartMoving)
@@ -104,15 +117,15 @@ local function CreateConfigWindow()
 
     local enabledCheck = CreateFrame("CheckButton", "SHCAConfigEnabledCheck", config, "UICheckButtonTemplate")
     enabledCheck:SetPoint("TOPLEFT", 16, -44)
-    _G[enabledCheck:GetName() .. "Text"]:SetText("Включить аддон")
+    SetCheckButtonText(enabledCheck, "Включить аддон")
 
     local rwCheck = CreateFrame("CheckButton", "SHCAConfigRWCheck", config, "UICheckButtonTemplate")
     rwCheck:SetPoint("TOPLEFT", enabledCheck, "BOTTOMLEFT", 0, -8)
-    _G[rwCheck:GetName() .. "Text"]:SetText("Центральное предупреждение")
+    SetCheckButtonText(rwCheck, "Центральное предупреждение")
 
     local soundCheck = CreateFrame("CheckButton", "SHCAConfigSoundCheck", config, "UICheckButtonTemplate")
     soundCheck:SetPoint("TOPLEFT", rwCheck, "BOTTOMLEFT", 0, -8)
-    _G[soundCheck:GetName() .. "Text"]:SetText("Звуковой сигнал")
+    SetCheckButtonText(soundCheck, "Звуковой сигнал")
 
     CreateLabel(config, "Канал анонса:", "TOPLEFT", 16, -142)
 
@@ -213,6 +226,11 @@ end
 
 local function ToggleConfigWindow()
     if not state.configWindow then
+        CreateConfigWindow()
+    end
+
+    if not state.configWindow then
+        print("|cffff4040" .. addonName .. "|r: не удалось создать окно настроек.")
         return
     end
 
@@ -324,7 +342,6 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
         SHCA_DB = SHCA_DB or {}
         MergeDefaults(SHCA_DB, defaults)
-        CreateConfigWindow()
         print("|cffff4040Sirus Harmful Cast Announcer|r загружен. /shca")
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         HandleCastStart(CombatLogGetCurrentEventInfo())
