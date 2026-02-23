@@ -12,7 +12,10 @@ local defaults = {
 
 local state = {
     lastAnnounceAt = {},
+    configWindow = nil,
 }
+
+local channelOrder = { "AUTO", "SAY", "PARTY", "RAID" }
 
 local function MergeDefaults(target, source)
     for key, value in pairs(source) do
@@ -23,29 +26,6 @@ local function MergeDefaults(target, source)
             target[key] = value
         end
     end
-end
-
-local function IsHostileUnitByGUID(guid)
-    if not guid then
-        return false
-    end
-
-    local candidateUnits = {
-        "target",
-        "focus",
-        "mouseover",
-        "arena1", "arena2", "arena3", "arena4", "arena5",
-        "boss1", "boss2", "boss3", "boss4", "boss5",
-    }
-
-    for _, unit in ipairs(candidateUnits) do
-        if UnitExists(unit) and UnitGUID(unit) == guid and UnitCanAttack("player", unit) then
-            return true
-        end
-    end
-
-    local _, _, _, _, _, npcID = strsplit("-", guid)
-    return npcID ~= nil
 end
 
 local function IsDuplicateAnnouncement(sourceGUID, spellID)
@@ -89,48 +69,95 @@ local function Announce(message)
     SendChatMessage(message, ResolveChannel())
 end
 
-local function CreateOptionsPanel()
-    local panel = CreateFrame("Frame", "SHCAOptionsPanel", InterfaceOptionsFramePanelContainer)
-    panel.name = "Sirus Harmful Cast Announcer"
+local function CreateLabel(parent, text, anchor, x, y)
+    local label = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    label:SetPoint(anchor, x, y)
+    label:SetText(text)
+    return label
+end
 
-    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -16)
+local function CreateConfigWindow()
+    local config = CreateFrame("Frame", "SHCAConfigWindow", UIParent)
+    config:SetSize(360, 280)
+    config:SetPoint("CENTER")
+    config:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true,
+        tileSize = 16,
+        edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    config:EnableMouse(true)
+    config:SetMovable(true)
+    config:RegisterForDrag("LeftButton")
+    config:SetScript("OnDragStart", config.StartMoving)
+    config:SetScript("OnDragStop", config.StopMovingOrSizing)
+    config:Hide()
+
+    local title = config:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOP", 0, -14)
     title:SetText("Sirus Harmful Cast Announcer")
 
-    local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    subtitle:SetJustifyH("LEFT")
-    subtitle:SetText("Настройки анонса враждебных кастов")
+    local closeButton = CreateFrame("Button", nil, config, "UIPanelCloseButton")
+    closeButton:SetPoint("TOPRIGHT", -5, -5)
 
-    local enabledCheck = CreateFrame("CheckButton", "SHCAEnabledCheck", panel, "InterfaceOptionsCheckButtonTemplate")
-    enabledCheck:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", -2, -16)
+    local enabledCheck = CreateFrame("CheckButton", "SHCAConfigEnabledCheck", config, "UICheckButtonTemplate")
+    enabledCheck:SetPoint("TOPLEFT", 16, -44)
     _G[enabledCheck:GetName() .. "Text"]:SetText("Включить аддон")
+
+    local rwCheck = CreateFrame("CheckButton", "SHCAConfigRWCheck", config, "UICheckButtonTemplate")
+    rwCheck:SetPoint("TOPLEFT", enabledCheck, "BOTTOMLEFT", 0, -8)
+    _G[rwCheck:GetName() .. "Text"]:SetText("Центральное предупреждение")
+
+    local soundCheck = CreateFrame("CheckButton", "SHCAConfigSoundCheck", config, "UICheckButtonTemplate")
+    soundCheck:SetPoint("TOPLEFT", rwCheck, "BOTTOMLEFT", 0, -8)
+    _G[soundCheck:GetName() .. "Text"]:SetText("Звуковой сигнал")
+
+    CreateLabel(config, "Канал анонса:", "TOPLEFT", 16, -142)
+
+    local channelButton = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
+    channelButton:SetSize(110, 22)
+    channelButton:SetPoint("TOPLEFT", 16, -162)
+
+    CreateLabel(config, "Антиспам (сек):", "TOPLEFT", 16, -194)
+
+    local throttleSlider = CreateFrame("Slider", "SHCAThrottleSlider", config, "OptionsSliderTemplate")
+    throttleSlider:SetPoint("TOPLEFT", 10, -212)
+    throttleSlider:SetWidth(220)
+    throttleSlider:SetMinMaxValues(0, 5)
+    throttleSlider:SetValueStep(0.1)
+    throttleSlider:SetObeyStepOnDrag(true)
+    _G[throttleSlider:GetName() .. "Low"]:SetText("0")
+    _G[throttleSlider:GetName() .. "High"]:SetText("5")
+
+    local throttleValue = config:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    throttleValue:SetPoint("LEFT", throttleSlider, "RIGHT", 8, 0)
+
+    CreateLabel(config, "Звук (Sound\\...):", "TOPLEFT", 190, -44)
+
+    local soundEditBox = CreateFrame("EditBox", nil, config, "InputBoxTemplate")
+    soundEditBox:SetSize(150, 20)
+    soundEditBox:SetPoint("TOPLEFT", 190, -62)
+    soundEditBox:SetAutoFocus(false)
+
+    local testSoundButton = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
+    testSoundButton:SetSize(150, 22)
+    testSoundButton:SetPoint("TOPLEFT", 190, -92)
+    testSoundButton:SetText("Проверить звук")
+
     enabledCheck:SetScript("OnClick", function(self)
         SHCA_DB.enabled = self:GetChecked() and true or false
     end)
 
-    local rwCheck = CreateFrame("CheckButton", "SHCARWCheck", panel, "InterfaceOptionsCheckButtonTemplate")
-    rwCheck:SetPoint("TOPLEFT", enabledCheck, "BOTTOMLEFT", 0, -6)
-    _G[rwCheck:GetName() .. "Text"]:SetText("Показывать предупреждение в центре")
     rwCheck:SetScript("OnClick", function(self)
         SHCA_DB.useRaidWarningFrame = self:GetChecked() and true or false
     end)
 
-    local soundCheck = CreateFrame("CheckButton", "SHCASoundCheck", panel, "InterfaceOptionsCheckButtonTemplate")
-    soundCheck:SetPoint("TOPLEFT", rwCheck, "BOTTOMLEFT", 0, -6)
-    _G[soundCheck:GetName() .. "Text"]:SetText("Проигрывать звуковой сигнал")
     soundCheck:SetScript("OnClick", function(self)
         SHCA_DB.useSound = self:GetChecked() and true or false
     end)
 
-    local soundLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    soundLabel:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 2, -16)
-    soundLabel:SetText("Путь к звуку (Sound\\...):")
-
-    local soundEditBox = CreateFrame("EditBox", "SHCASoundPathEditBox", panel, "InputBoxTemplate")
-    soundEditBox:SetSize(350, 24)
-    soundEditBox:SetPoint("TOPLEFT", soundLabel, "BOTTOMLEFT", 0, -8)
-    soundEditBox:SetAutoFocus(false)
     soundEditBox:SetScript("OnEnterPressed", function(self)
         local text = self:GetText()
         if text and text ~= "" then
@@ -138,70 +165,62 @@ local function CreateOptionsPanel()
         end
         self:ClearFocus()
     end)
+
     soundEditBox:SetScript("OnEscapePressed", function(self)
         self:SetText(SHCA_DB.soundPath)
         self:ClearFocus()
     end)
 
-    local throttleSlider = CreateFrame("Slider", "SHCAThrottleSlider", panel, "OptionsSliderTemplate")
-    throttleSlider:SetWidth(260)
-    throttleSlider:SetPoint("TOPLEFT", soundEditBox, "BOTTOMLEFT", 8, -28)
-    throttleSlider:SetMinMaxValues(0, 5)
-    throttleSlider:SetValueStep(0.1)
-    throttleSlider:SetObeyStepOnDrag(true)
-    _G[throttleSlider:GetName() .. "Low"]:SetText("0")
-    _G[throttleSlider:GetName() .. "High"]:SetText("5")
-
-    local throttleText = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    throttleText:SetPoint("BOTTOM", throttleSlider, "TOP", 0, 4)
-
-    throttleSlider:SetScript("OnValueChanged", function(self, value)
+    throttleSlider:SetScript("OnValueChanged", function(_, value)
         local rounded = math.floor((value * 10) + 0.5) / 10
         SHCA_DB.throttleSeconds = rounded
-        throttleText:SetText("Антиспам: " .. string.format("%.1f", rounded) .. " сек")
+        throttleValue:SetText(string.format("%.1f", rounded))
     end)
 
-    local channelLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    channelLabel:SetPoint("TOPLEFT", throttleSlider, "BOTTOMLEFT", -8, -26)
-    channelLabel:SetText("Канал анонса:")
-
-    local channelDropDown = CreateFrame("Frame", "SHCAChannelDropDown", panel, "UIDropDownMenuTemplate")
-    channelDropDown:SetPoint("TOPLEFT", channelLabel, "BOTTOMLEFT", -16, -6)
-
-    UIDropDownMenu_SetWidth(channelDropDown, 140)
-    UIDropDownMenu_Initialize(channelDropDown, function(self, level)
-        local channels = {
-            { text = "AUTO", value = "AUTO" },
-            { text = "SAY", value = "SAY" },
-            { text = "PARTY", value = "PARTY" },
-            { text = "RAID", value = "RAID" },
-        }
-
-        for _, entry in ipairs(channels) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = entry.text
-            info.value = entry.value
-            info.func = function()
-                SHCA_DB.channel = entry.value
-                UIDropDownMenu_SetSelectedValue(channelDropDown, entry.value)
+    channelButton:SetScript("OnClick", function(self)
+        local nextIndex = 1
+        for i, value in ipairs(channelOrder) do
+            if value == SHCA_DB.channel then
+                nextIndex = i + 1
+                break
             end
-            info.checked = (SHCA_DB.channel == entry.value)
-            UIDropDownMenu_AddButton(info, level)
+        end
+        if nextIndex > #channelOrder then
+            nextIndex = 1
+        end
+        SHCA_DB.channel = channelOrder[nextIndex]
+        self:SetText(SHCA_DB.channel)
+    end)
+
+    testSoundButton:SetScript("OnClick", function()
+        if PlaySoundFile then
+            PlaySoundFile(SHCA_DB.soundPath)
         end
     end)
 
-    panel:SetScript("OnShow", function()
+    config:SetScript("OnShow", function()
         enabledCheck:SetChecked(SHCA_DB.enabled)
         rwCheck:SetChecked(SHCA_DB.useRaidWarningFrame)
         soundCheck:SetChecked(SHCA_DB.useSound)
-        soundEditBox:SetText(SHCA_DB.soundPath)
+        channelButton:SetText(SHCA_DB.channel)
         throttleSlider:SetValue(SHCA_DB.throttleSeconds)
-        throttleText:SetText("Антиспам: " .. string.format("%.1f", SHCA_DB.throttleSeconds) .. " сек")
-        UIDropDownMenu_SetSelectedValue(channelDropDown, SHCA_DB.channel)
-        UIDropDownMenu_SetText(channelDropDown, SHCA_DB.channel)
+        throttleValue:SetText(string.format("%.1f", SHCA_DB.throttleSeconds))
+        soundEditBox:SetText(SHCA_DB.soundPath)
     end)
 
-    InterfaceOptions_AddCategory(panel)
+    state.configWindow = config
+end
+
+local function ToggleConfigWindow()
+    if not state.configWindow then
+        return
+    end
+
+    if state.configWindow:IsShown() then
+        state.configWindow:Hide()
+    else
+        state.configWindow:Show()
+    end
 end
 
 local function HandleCastStart(...)
@@ -216,10 +235,6 @@ local function HandleCastStart(...)
     end
 
     if bit.band(sourceFlags or 0, COMBATLOG_OBJECT_REACTION_HOSTILE) == 0 then
-        return
-    end
-
-    if not IsHostileUnitByGUID(sourceGUID) then
         return
     end
 
@@ -243,7 +258,7 @@ local function PrintUsage()
     print("  /shca soundfile <путь> - путь к звуковому файлу")
     print("  /shca channel auto|say|party|raid - канал анонса")
     print("  /shca throttle <секунды> - антиспам")
-    print("  /shca config - открыть окно настроек")
+    print("  /shca config - открыть/закрыть окно настроек")
     print("  /shca status - текущие настройки")
 end
 
@@ -294,8 +309,7 @@ SlashCmdList.SHCA = function(msg)
     elseif command == "status" then
         PrintStatus()
     elseif command == "config" then
-        InterfaceOptionsFrame_OpenToCategory("Sirus Harmful Cast Announcer")
-        InterfaceOptionsFrame_OpenToCategory("Sirus Harmful Cast Announcer")
+        ToggleConfigWindow()
     else
         PrintUsage()
     end
@@ -310,7 +324,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 
         SHCA_DB = SHCA_DB or {}
         MergeDefaults(SHCA_DB, defaults)
-        CreateOptionsPanel()
+        CreateConfigWindow()
         print("|cffff4040Sirus Harmful Cast Announcer|r загружен. /shca")
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         HandleCastStart(CombatLogGetCurrentEventInfo())
