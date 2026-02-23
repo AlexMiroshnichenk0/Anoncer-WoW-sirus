@@ -11,6 +11,8 @@ local defaults = {
     showSpellID = false,
     announceOnlyInGroup = false,
     lockWindow = false,
+    theme = "DEFAULT",
+    useElvUISkin = true,
 }
 
 local state = {
@@ -20,6 +22,7 @@ local state = {
 }
 
 local channelOrder = { "AUTO", "SAY", "PARTY", "RAID" }
+local themeOrder = { "DEFAULT", "DARK", "CLASS" }
 
 local function MergeDefaults(target, source)
     for key, value in pairs(source) do
@@ -95,6 +98,69 @@ local function SetCheckButtonText(checkButton, text)
     end
 end
 
+local function IsElvUIAvailable()
+    return _G.ElvUI and type(_G.ElvUI) == "table" and _G.ElvUI[1] and _G.ElvUI[1].Skins
+end
+
+local function ApplyTheme()
+    if not state.configWindow or not state.controls then
+        return
+    end
+
+    local backdropR, backdropG, backdropB = 0.06, 0.06, 0.07
+    local sectionR, sectionG, sectionB = 0.03, 0.03, 0.03
+
+    if SHCA_DB.theme == "DARK" then
+        backdropR, backdropG, backdropB = 0.02, 0.02, 0.02
+        sectionR, sectionG, sectionB = 0.01, 0.01, 0.01
+    elseif SHCA_DB.theme == "CLASS" then
+        local _, class = UnitClass("player")
+        local color = class and RAID_CLASS_COLORS[class]
+        if color then
+            backdropR = color.r * 0.25
+            backdropG = color.g * 0.25
+            backdropB = color.b * 0.25
+            sectionR = color.r * 0.15
+            sectionG = color.g * 0.15
+            sectionB = color.b * 0.15
+        end
+    end
+
+    state.configWindow:SetBackdropColor(backdropR, backdropG, backdropB, 0.92)
+
+    local sections = state.controls.sections or {}
+    for _, section in ipairs(sections) do
+        section:SetBackdropColor(sectionR, sectionG, sectionB, 0.85)
+    end
+
+    if state.controls.themeButton then
+        state.controls.themeButton:SetText(SHCA_DB.theme)
+    end
+
+    if SHCA_DB.useElvUISkin and IsElvUIAvailable() then
+        local S = _G.ElvUI[1].Skins
+        if not state.controls.elvSkinApplied then
+            if S.HandleCloseButton then
+                S:HandleCloseButton(state.controls.closeButton)
+            end
+            if S.HandleButton then
+                S:HandleButton(state.controls.channelButton)
+                S:HandleButton(state.controls.themeButton)
+                S:HandleButton(state.controls.testSoundButton)
+                S:HandleButton(state.controls.testMessageButton)
+                S:HandleButton(state.controls.resetPosButton)
+            end
+            if S.HandleEditBox then
+                S:HandleEditBox(state.controls.soundEditBox)
+            end
+            if S.HandleSliderFrame then
+                S:HandleSliderFrame(state.controls.throttleSlider)
+            end
+            state.controls.elvSkinApplied = true
+        end
+    end
+end
+
 local function ApplyLockState()
     if not state.configWindow then
         return
@@ -121,6 +187,7 @@ local function CreateSection(parent, title, x, y, width, height)
     local label = box:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     label:SetPoint("TOPLEFT", 10, -8)
     label:SetText(title)
+    box._shcaLabel = label
 
     return box
 end
@@ -137,11 +204,13 @@ local function RefreshConfigWindow()
     c.spellIDCheck:SetChecked(SHCA_DB.showSpellID)
     c.groupOnlyCheck:SetChecked(SHCA_DB.announceOnlyInGroup)
     c.lockWindowCheck:SetChecked(SHCA_DB.lockWindow)
+    c.elvuiCheck:SetChecked(SHCA_DB.useElvUISkin)
     c.soundEditBox:SetText(SHCA_DB.soundPath)
     c.channelButton:SetText(SHCA_DB.channel)
     c.throttleSlider:SetValue(SHCA_DB.throttleSeconds)
     c.throttleValue:SetText(string.format("%.1f сек", SHCA_DB.throttleSeconds))
     ApplyLockState()
+    ApplyTheme()
 end
 
 local function CreateConfigWindow()
@@ -239,9 +308,21 @@ local function CreateConfigWindow()
     soundCheck:SetPoint("TOPLEFT", throttleSlider, "BOTTOMLEFT", 0, -14)
     SetCheckButtonText(soundCheck, "Звуковой сигнал")
 
+    local themeLabel = rightSection:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    themeLabel:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 8, -8)
+    themeLabel:SetText("Тема:")
+
+    local themeButton = CreateFrame("Button", nil, rightSection, "UIPanelButtonTemplate")
+    themeButton:SetSize(100, 22)
+    themeButton:SetPoint("LEFT", themeLabel, "RIGHT", 10, 0)
+
+    local elvuiCheck = CreateFrame("CheckButton", "SHCAConfigElvUICheck", rightSection, "UICheckButtonTemplate")
+    elvuiCheck:SetPoint("TOPLEFT", themeLabel, "BOTTOMLEFT", -8, -4)
+    SetCheckButtonText(elvuiCheck, "Использовать ElvUI скин (если доступен)")
+
     local soundEditBox = CreateFrame("EditBox", nil, rightSection, "InputBoxTemplate")
     soundEditBox:SetSize(180, 20)
-    soundEditBox:SetPoint("TOPLEFT", soundCheck, "BOTTOMLEFT", 8, -6)
+    soundEditBox:SetPoint("TOPLEFT", elvuiCheck, "BOTTOMLEFT", 8, -6)
     soundEditBox:SetAutoFocus(false)
 
     local testSoundButton = CreateFrame("Button", nil, rightSection, "UIPanelButtonTemplate")
@@ -291,6 +372,32 @@ local function CreateConfigWindow()
 
     soundCheck:SetScript("OnClick", function(self)
         SHCA_DB.useSound = self:GetChecked() and true or false
+    end)
+
+    themeButton:SetScript("OnClick", function(self)
+        local nextIndex = 1
+        for i, value in ipairs(themeOrder) do
+            if value == SHCA_DB.theme then
+                nextIndex = i + 1
+                break
+            end
+        end
+        if nextIndex > #themeOrder then
+            nextIndex = 1
+        end
+        SHCA_DB.theme = themeOrder[nextIndex]
+        self:SetText(SHCA_DB.theme)
+        ApplyTheme()
+        statusText:SetText("Тема изменена: " .. SHCA_DB.theme)
+    end)
+
+    elvuiCheck:SetScript("OnClick", function(self)
+        SHCA_DB.useElvUISkin = self:GetChecked() and true or false
+        if not SHCA_DB.useElvUISkin then
+            state.controls.elvSkinApplied = false
+        end
+        ApplyTheme()
+        statusText:SetText("ElvUI-скин: " .. tostring(SHCA_DB.useElvUISkin))
     end)
 
     soundEditBox:SetScript("OnEnterPressed", function(self)
@@ -357,10 +464,18 @@ local function CreateConfigWindow()
         spellIDCheck = spellIDCheck,
         groupOnlyCheck = groupOnlyCheck,
         lockWindowCheck = lockWindowCheck,
+        elvuiCheck = elvuiCheck,
         soundEditBox = soundEditBox,
         channelButton = channelButton,
+        themeButton = themeButton,
         throttleSlider = throttleSlider,
         throttleValue = throttleValue,
+        testSoundButton = testSoundButton,
+        testMessageButton = testMessageButton,
+        resetPosButton = resetPosButton,
+        closeButton = closeButton,
+        sections = { leftSection, rightSection, bottomSection },
+        elvSkinApplied = false,
     }
 
     state.configWindow = config
@@ -424,6 +539,8 @@ local function PrintUsage()
     print("  /shca spellid on|off - добавлять ID заклинания")
     print("  /shca grouponly on|off - анонс только в группе")
     print("  /shca resetpos - сброс позиции окна")
+    print("  /shca theme default|dark|class - тема окна")
+    print("  /shca elvui on|off - ElvUI скин")
     print("  /shca test - тестовый анонс")
     print("  /shca config - открыть/закрыть окно настроек")
     print("  /shca status - текущие настройки")
@@ -440,6 +557,7 @@ local function PrintStatus()
     ))
     print("SpellID в тексте: " .. tostring(SHCA_DB.showSpellID))
     print("Только в группе: " .. tostring(SHCA_DB.announceOnlyInGroup))
+    print("Тема: " .. tostring(SHCA_DB.theme) .. ", ElvUI скин: " .. tostring(SHCA_DB.useElvUISkin))
     print("Путь звука: " .. SHCA_DB.soundPath)
 end
 
@@ -467,6 +585,17 @@ SlashCmdList.SHCA = function(msg)
     elseif command == "grouponly" and (arg == "on" or arg == "off") then
         SHCA_DB.announceOnlyInGroup = (arg == "on")
         print("Анонс только в группе: " .. arg)
+    elseif command == "theme" and (arg == "default" or arg == "dark" or arg == "class") then
+        SHCA_DB.theme = string.upper(arg)
+        ApplyTheme()
+        print("Тема окна: " .. SHCA_DB.theme)
+    elseif command == "elvui" and (arg == "on" or arg == "off") then
+        SHCA_DB.useElvUISkin = (arg == "on")
+        if not SHCA_DB.useElvUISkin and state.controls then
+            state.controls.elvSkinApplied = false
+        end
+        ApplyTheme()
+        print("ElvUI-скин: " .. arg)
     elseif command == "soundfile" and arg ~= "" then
         SHCA_DB.soundPath = msg:match("^%S+%s+(.+)$") or SHCA_DB.soundPath
         print("Путь к звуку: " .. SHCA_DB.soundPath)
