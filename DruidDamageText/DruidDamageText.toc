@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Druid Damage Text
+## Notes: Beautiful floating damage text for druids with yellow/orange color themes.
+## Author: Codex
+## Version: 1.0.0
+## SavedVariables: DruidDamageTextDB
+
+DruidDamageText.lua
