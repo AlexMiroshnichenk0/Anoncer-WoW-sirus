@@ -102,6 +102,12 @@ local function IsElvUIAvailable()
     return _G.ElvUI and type(_G.ElvUI) == "table" and _G.ElvUI[1] and _G.ElvUI[1].Skins
 end
 
+local function SafeElvUISkinCall(handler, widget)
+    if handler and widget then
+        pcall(handler, _G.ElvUI[1].Skins, widget)
+    end
+end
+
 local function ApplyTheme()
     if not state.configWindow or not state.controls then
         return
@@ -140,22 +146,14 @@ local function ApplyTheme()
     if SHCA_DB.useElvUISkin and IsElvUIAvailable() then
         local S = _G.ElvUI[1].Skins
         if not state.controls.elvSkinApplied then
-            if S.HandleCloseButton then
-                S:HandleCloseButton(state.controls.closeButton)
-            end
-            if S.HandleButton then
-                S:HandleButton(state.controls.channelButton)
-                S:HandleButton(state.controls.themeButton)
-                S:HandleButton(state.controls.testSoundButton)
-                S:HandleButton(state.controls.testMessageButton)
-                S:HandleButton(state.controls.resetPosButton)
-            end
-            if S.HandleEditBox then
-                S:HandleEditBox(state.controls.soundEditBox)
-            end
-            if S.HandleSliderFrame then
-                S:HandleSliderFrame(state.controls.throttleSlider)
-            end
+            SafeElvUISkinCall(S.HandleCloseButton, state.controls.closeButton)
+            SafeElvUISkinCall(S.HandleButton, state.controls.channelButton)
+            SafeElvUISkinCall(S.HandleButton, state.controls.themeButton)
+            SafeElvUISkinCall(S.HandleButton, state.controls.testSoundButton)
+            SafeElvUISkinCall(S.HandleButton, state.controls.testMessageButton)
+            SafeElvUISkinCall(S.HandleButton, state.controls.resetPosButton)
+            SafeElvUISkinCall(S.HandleEditBox, state.controls.soundEditBox)
+            SafeElvUISkinCall(S.HandleSliderFrame, state.controls.throttleSlider)
             state.controls.elvSkinApplied = true
         end
     end
@@ -641,7 +639,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         MergeDefaults(SHCA_DB, defaults)
         print("|cffff4040Sirus Harmful Cast Announcer|r загружен. /shca")
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        HandleCastStart(CombatLogGetCurrentEventInfo())
+        HandleCastStart(...)
     end
 end)
 
